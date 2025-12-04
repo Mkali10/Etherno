@@ -1,20 +1,19 @@
-# Use Node 18 Alpine image
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy package files first
 COPY package.json package-lock.json ./
 
 # Install only production dependencies
 RUN npm ci --omit=dev
 
-# Copy source code
-COPY src/ ./src/
+# Copy rest of the source code
+COPY src ./src
 
-# Expose port 8080
-EXPOSE 8080
+# Expose port
+EXPOSE 3000
 
-# Command to run the app
-CMD ["npm", "start"]
+# Start the app
+CMD ["node", "src/index.js"]
