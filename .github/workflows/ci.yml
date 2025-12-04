@@ -1,0 +1,28 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    - name: Install dependencies
+      run: npm install
+      working-directory: services/broker
+
+    - name: Run tests
+      run: npm test
+      working-directory: services/broker
+
+    - name: Build Docker image
+      run: docker build -t myapp/broker:latest services/broker
+
+    # Repeat for endpoint_agent and admin_ui as necessary
