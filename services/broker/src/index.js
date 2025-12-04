@@ -4,71 +4,126 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const WebSocket = require('ws');
-const auth = require('./auth');
-const session = require('./session');
-const signaling = require('./signaling');
-const recording = require('./recording');
-const db = require('./db');
+const { Pool } = require('pg');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const JWT_SECRET = process.env.JWT_SECRET || 'etheron-secret';
 
-// Security middleware
+// Database
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'etheron',
+  user: process.env.DB_USER || 'etheron',
+  password: process.env.DB_PASS || 'etheron123'
+});
+
+// Middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS || '*' }));
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || '*' }));
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
-app.use(auth.jwtMiddleware);
 
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+// Health Check
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'Etheron Broker', timestamp: new Date().toISOString() }));
 
-// API Routes
-app.post('/api/sessions', auth.requireSubscription, async (req, res) => {
-  try {
-    const { endpointId, userId } = req.body;
-    const sessionId = await session.createSession({ userId, endpointId });
-    res.json({ sessionId, status: 'created' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// JWT Middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+  
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+};
 
-app.get('/api/sessions/:id', auth.requireSubscription, async (req, res) => {
-  const sessionData = await session.getSession(req.params.id);
-  res.json(sessionData);
-});
-
+// Login
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = await db.getUserByEmail(email);
-  if (user && await auth.verifyPassword(password, user.password)) {
-    const token = auth.generateToken(user);
-    res.json({ token, user: { id: user.id, email: user.email, subscriptionActive: user.subscriptionActive } });
-  } else {
-    res.status(401).json({ error: 'Invalid credentials' });
+  
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const user = result.rows[0];
+    
+    if (user && await bcrypt.compare(password, user.password)) {
+      const token = jwt.sign(
+        { id: user.id, email: user.email, role: user.role, subscription_active: user.subscription_active },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      res.json({ 
+        token, 
+        user: { id: user.id, email: user.email, role: user.role, subscription_active: user.subscription_active }
+      });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
-// WebSocket for real-time signaling
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ 
-  server, 
-  path: '/ws',
-  verifyClient: (info) => auth.verifyWebSocketToken(info.req.headers.authorization)
+// Create Session
+app.post('/api/sessions', authenticateToken, async (req, res) => {
+  if (!req.user.subscription_active) {
+    return res.status(403).json({ error: 'Active subscription required' });
+  }
+  
+  const { endpoint_id } = req.body;
+  const sessionId = uuidv4();
+  
+  try {
+    await pool.query(
+      'INSERT INTO sessions (id, user_id, endpoint_id, status, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [sessionId, req.user.id, endpoint_id, 'active', new Date()]
+    );
+    res.json({ sessionId, status: 'created', message: 'Etheron session created' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create session' });
+  }
 });
 
+app.get('/api/sessions', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+// WebSocket Signaling
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server, path: '/ws' });
+
 wss.on('connection', (ws, req) => {
-  console.log('WebSocket connected:', req.url);
-  signaling.handleConnection(ws, req);
+  console.log('Etheron WebSocket connected');
+  
+  ws.on('message', (message) => {
+    const data = JSON.parse(message);
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(data));
+      }
+    });
+  });
+  
+  ws.on('close', () => {
+    console.log('Etheron WebSocket disconnected');
+  });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Broker running on port ${PORT}`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  server.close(() => process.exit(0));
+  console.log(`🚀 Etheron Broker running on port ${PORT}`);
 });
