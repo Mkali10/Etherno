@@ -4,7 +4,8 @@
   "description": "Etheron app",
   "main": "server.js",
   "scripts": {
-    "test": "echo 'No tests specified' && exit 0"
+    "test": "echo 'No tests specified' && exit 0",
+    "start": "node server.js"
   },
   "author": "Mkali10"
 }
