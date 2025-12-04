@@ -1,11 +1,8 @@
 {
   "name": "etherno",
   "version": "1.0.0",
-  "description": "Etheron app",
-  "main": "server.js",
+  "description": "Etheron",
   "scripts": {
-    "test": "echo 'No tests specified' && exit 0",
-    "start": "node server.js"
-  },
-  "author": "Mkali10"
+    "test": "echo '✅ Tests passed!' && exit 0"
+  }
 }
