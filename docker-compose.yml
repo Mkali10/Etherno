@@ -1,49 +1,33 @@
 version: '3.8'
 services:
-  postgres:
-    image: postgres:15-alpine
+  db:
+    image: postgres:15
     environment:
       POSTGRES_DB: etheron
       POSTGRES_USER: etheron
       POSTGRES_PASSWORD: etheron123
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+      - ./data/schema.sql:/docker-entrypoint-initdb.d/1.sql
 
   broker:
     build: ./services/broker
     ports:
       - "8080:8080"
     environment:
-      - JWT_SECRET=etheron-super-secret-2025
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=etheron
-      - DB_USER=etheron
-      - DB_PASS=etheron123
-      - PORT=8080
-      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      DB_HOST: db
+      DB_NAME: etheron
+      DB_USER: etheron
+      DB_PASS: etheron123
     depends_on:
-      - postgres
-      - redis
-    restart: unless-stopped
+      - db
 
   admin-ui:
     build: ./services/admin-ui
     ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_BROKER_URL=http://localhost:8080
+      - "3000:80"
     depends_on:
       - broker
-    restart: unless-stopped
 
 volumes:
   postgres_data:
