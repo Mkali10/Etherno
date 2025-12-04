@@ -1,11 +1,43 @@
 const { v4: uuidv4 } = require('uuid');
-const sessions = new Map();
+const db = require('./db');
+const recording = require('./recording');
 
-async function createSession(userId) {
+const activeSessions = new Map();
+
+async function createSession({ userId, endpointId }) {
   const sessionId = uuidv4();
-  sessions.set(sessionId, { userId, createdAt: Date.now(), status: 'active' });
-  // TODO: Persist session in DB and trigger recording if necessary
+  const session = {
+    id: sessionId,
+    userId,
+    endpointId,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    recordingId: null
+  };
+
+  // Save to database
+  await db.saveSession(session);
+  
+  // Start recording
+  session.recordingId = await recording.startRecording(sessionId);
+  
+  activeSessions.set(sessionId, session);
   return sessionId;
 }
 
-module.exports = { createSession };
+async function getSession(sessionId) {
+  const session = activeSessions.get(sessionId) || await db.getSession(sessionId);
+  return session;
+}
+
+async function endSession(sessionId) {
+  const session = activeSessions.get(sessionId);
+  if (session) {
+    session.status = 'ended';
+    session.endedAt = new Date().toISOString();
+    await db.updateSession(session);
+    activeSessions.delete(sessionId);
+  }
+}
+
+module.exports = { createSession, getSession, endSession };
