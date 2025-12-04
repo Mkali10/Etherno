@@ -1,8 +1,20 @@
+# Use Node 18 Alpine image
 FROM node:18-alpine
+
+# Set working directory
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
+
+# Copy package.json and package-lock.json
+COPY package.json package-lock.json ./
+
+# Install only production dependencies
+RUN npm ci --omit=dev
+
+# Copy source code
 COPY src/ ./src/
+
+# Expose port 8080
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
-CMD ["node", "src/index.js"]
+
+# Command to run the app
+CMD ["npm", "start"]
